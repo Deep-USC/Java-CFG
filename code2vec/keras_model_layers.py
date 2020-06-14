@@ -13,7 +13,13 @@ from tensorflow.python import keras
 from tensorflow.python.keras.layers import Layer
 from tensorflow.python.keras import backend as K
 
+from tensorflow.python.framework import ops
+
+from tensorflow.python.keras.utils import tf_utils
+
 from tensorflow.python.ops import embedding_ops
+from tensorflow.python.ops import array_ops
+from tensorflow.python.ops import nn
 
 '''
 class Input(Layer):
@@ -66,6 +72,7 @@ class Concatenate(Layer):
     def call(self, inputs, **kwargs):
 
         return 
+'''
 
 class Dropout(Layer):
 
@@ -74,18 +81,34 @@ class Dropout(Layer):
         self.rate = rate
         self.noise_shape = noise_shape
         self.seed = seed
-        self.supports_masking = True
+        #self.supports_masking = True
 
+    def _get_noise_shape(self, inputs):
 
-    def build(self, inputs):
+        if self.noise_shape is None:
+            return self.noise_shape
+        
+        concrete_inputs_shape = array_ops.shape(inputs)
+        noise_shape = []
+        for i, value in enumerate(self.noise_shape):
+            noise_shape.append(concrete_inputs_shape[i] if value is None else value)
+        return ops.convert_to_tensor_v2(noise_shape)
 
+    def call(self, inputs, training=None):
 
-        super(Dropout, self).build(inputs)
+        def dropped_inputs():
+            return nn.dropout(
+                inputs,
+                noise_shape=self._get_noise_shape(inputs),
+                seed=self.seed,
+                rate=self.rate
+            )
+        
+        # Return either `dropped_inputs` if training is true else a Tensor with the same shape and contents as inputs
+        output = tf_utils.smart_cond(training, dropped_inputs, lambda: array_ops.identity(inputs))
 
-    def call(self, inputs, **kwargs):
-
-        return 
-
+        return output
+'''
 class TimeDistributed(Layer):
     def __init__(self, trainable=True, name=None, dtype=None, dynamic=False, **kwargs):
         super(TimeDistributed).__init__(trainable=trainable, name=name, dtype=dtype, dynamic=dynamic, **kwargs)
