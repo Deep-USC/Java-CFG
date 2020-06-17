@@ -13,8 +13,10 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.python import keras
 from tensorflow.python.keras.layers import Layer
+# from tensorflow.keras.layers import InputLayer
 from tensorflow.python.keras import backend as K
 from tensorflow.python.keras import activations
+from tensorflow.python.keras import initializers
 
 from tensorflow.python.eager import context
 
@@ -37,11 +39,21 @@ from tensorflow.python.ops.ragged import ragged_tensor
 
 
 class Embedding(Layer):
-    def __init__(self, input_dum, output_dim, name=None, **kwargs):
-        super(Embedding, self).__init__(**kwargs)
+    def __init__(self, input_dum, output_dim, 
+                       embeddings_initializer='uniform', input_length=None, **kwargs):
+        if 'input_shape' not in kwargs:
+            if input_length:
+                kwargs['input_shape'] = (input_length,)
+            else:
+                kwargs['input_shape'] = (None,)
+        dtype = kwargs.pop('dtype', K.floatx())
+        kwargs['autocast'] = False
+        super(Embedding, self).__init__(dtype=dtype, **kwargs)
 
         self.input_dim = input_dim
         self.output_dim = output_dim
+        self.embeddings_initializer = initializers.get(embeddings_initializer)
+        self.input_length = input_length
 
     def build(self, input_shape):
         if context.executing_eagerly() and context.context().num_gpus():
@@ -62,11 +74,14 @@ class Embedding(Layer):
                 dtype=tf.float32
             )
 
-        super(Embedding, self).build(input_shape)
+        self.built = True
 
-    def call(self, inputs, **kwargs):
-        result = embedding_ops.embedding_lookup(self.embeddings, inputs)
-        return result
+    def call(self, inputs):
+        dtype = K.dtype(inputs)
+        if dtype != 'int32' and dtype != 'int64':
+            inputs = math_ops.cast(inputs, 'int32')
+        outputs = embedding_ops.embedding_lookup(self.embeddings, inputs)
+        return outputs
 
 class Concatenate(Layer):
     def __init__(self, axis=-1, **kwargs):
@@ -74,16 +89,15 @@ class Concatenate(Layer):
         self.axis = axis
 
     def build(self, input_shape):
+        if all(shape is None for shape in input_shape):
+            return
         reduced_inputs_shapes = [list(shape) for shape in input_shape]
         shape_set = set()
         for i in range(len(reduced_inputs_shapes)):
             del reduced_inputs_shapes[i][self.axis]
             shape_set.add(tuple(reduced_inputs_shapes[i]))
 
-        super(Concatenate, self).build(input_shape)
-
-    def call(self, inputs, **kwargs):
-
+    def _merge_function(self, inputs):
         return K.concatenate(inputs, axis=self.axis) 
 
 class Dropout(Layer):
