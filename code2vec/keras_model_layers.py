@@ -162,6 +162,7 @@ class TimeDistributed(Layer):
         child_input_shape = [input_shape[0]] + input_shape[2:]
 
         super(TimeDistributed, self).build(tuple(child_input_shape))
+        self.built = True
 
     def compute_output_shape(self, input_shape):
         input_shape = tensor_shape.TensorShape(input_shape).as_list()
@@ -227,6 +228,8 @@ class TimeDistributed(Layer):
 
 class Dense(Layer):
     def __init__(self, units, activation=None, use_bias=True, **kwargs):
+        if 'input_shape' not in kwargs and 'input_dim' in kwargs:
+            kwargs['input_shape'] = (kwargs.pop('input_dim'),)
         super(Dense, self).__init__(**kwargs)
 
         self.units = int(units) if not isinstance(units, int) else units
@@ -255,7 +258,8 @@ class Dense(Layer):
         else:
             self.bias = None
 
-        super(Dense, self).build(input_shape)
+        # super(Sense, self).build(input_shape)
+        self.built = True
 
     def call(self, inputs):
         rank = inputs.shape.rank
