@@ -18,6 +18,9 @@ from tensorflow.python.keras import backend as K
 from tensorflow.python.keras import activations
 from tensorflow.python.keras import initializers
 
+from tensorflow.python.keras.engine import base_layer
+from tensorflow.python.keras.engine import node as node_module
+
 from tensorflow.python.eager import context
 
 from tensorflow.python.framework import ops
@@ -37,6 +40,80 @@ from tensorflow.python.ops import gen_math_ops
 
 from tensorflow.python.ops.ragged import ragged_tensor
 
+
+class Input(Layer):
+    def __init__(self, input_shape=None, batch_size=None, dtype=None, input_tensor=None, name=None, **kwargs):
+        if not name:
+            prefix = 'input'
+            name = prefix + '_' + str(K.get_uid(prefix))
+        if not dtype:
+            if input_tensor is None:
+                dtype = K.floatx()
+            else:
+                dtype = K.dtype(input_tensor)
+        super(Input, self).__init__(dtype=dtype, name=name)
+        self.built = True
+        self.batch_size = batch_size
+
+        if isinstance(input_shape, tensor_shape.TensorShape):
+            input_shape = tuple(input_shape.as_list())
+        elif isinstance(input_shape, int):
+            input_shape = (input_shape,)
+
+        if input_tensor is None:
+            if input_shape is not None:
+                batch_input_shape = (batch_size,) + tuple(input_shape)
+            else:
+                batch_input_shape = None
+            graph = K.get_graph()
+            with graph.as_default():
+                input_tensor = K.placeholder(
+                    shape=batch_input_shape,
+                    dtype=dtype,
+                    name=self.name)
+
+            self.is_placeholder = True
+            self._batch_input_shape = batch_input_shape
+        else:
+            if not tf_utils.is_symbolic_tensor(input_tensor):
+                raise ValueError('You should not pass an EagerTensor to `Input`. '
+                                 'For example, instead of creating an '
+                                 'InputLayer, you should instantiate your model and '
+                                 'directly call it on your input.')
+            self.is_placeholder = False
+            self._batch_input_shape = tuple(input_tensor.shape.as_list())
+
+        # Create an input node to add to self.outbound_node
+        # and set output_tensors' _keras_history.
+        input_tensor._keras_history = base_layer.KerasHistory(self, 0, 0)
+        input_tensor._keras_mask = None
+        node_module.Node(
+            self,
+            inbound_layers=[],
+            node_indices=[],
+            tensor_indices=[],
+            input_tensors=[input_tensor],
+            output_tensors=[input_tensor])
+
+    def build(self, shape=None, batch_size=None, name=None, dtype=None, tensor=None, **kwargs):
+        input_layer_config = {'name': name, 'dtype': dtype, 'input_tensor': tensor}
+        batch_input_shape = kwargs.pop('batch_input_shape', kwargs.pop('batch_shape', None))
+
+        if batch_input_shape:
+            shape = batch_input_shape[1:]
+            input_layer_config.update({'batch_input_shape': batch_input_shape})
+        else:
+            input_layer_config.update({'batch_size': batch_size, 'input_shape': shape})
+
+        #super(Input, self).build(**input_layer_config)
+        input_layer = Input(**input_layer_config)
+
+        outputs = input_layer._inbound_nodes[0].output_tensors
+        if len(outputs) == 1:
+            return outputs[0]
+        else:
+            return outputs
+        
 
 class Embedding(Layer):
     def __init__(self, input_dum, output_dim, 
