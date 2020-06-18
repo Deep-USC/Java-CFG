@@ -15,15 +15,19 @@ from tensorflow.python import keras
 from tensorflow.python.keras.layers import Layer
 # from tensorflow.keras.layers import InputLayer
 from tensorflow.python.keras import backend as K
+from tensorflow.python.keras import constraints
 from tensorflow.python.keras import activations
 from tensorflow.python.keras import initializers
+from tensorflow.python.keras import regularizers
 
 from tensorflow.python.keras.engine import base_layer
 from tensorflow.python.keras.engine import node as node_module
+from tensorflow.python.keras.engine.input_spec import InputSpec
 
 from tensorflow.python.eager import context
 
 from tensorflow.python.framework import ops
+from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import tensor_shape
 
 from tensorflow.python.keras.utils import tf_utils
@@ -114,9 +118,8 @@ class Input(Layer):
         else:
             return outputs
         
-
 class Embedding(Layer):
-    def __init__(self, input_dum, output_dim, 
+    def __init__(self, input_dim, output_dim, 
                        embeddings_initializer='uniform', input_length=None, **kwargs):
         if 'input_shape' not in kwargs:
             if input_length:
@@ -304,38 +307,59 @@ class TimeDistributed(Layer):
         return y
 
 class Dense(Layer):
-    def __init__(self, units, activation=None, use_bias=True, **kwargs):
+    def __init__(self, units, activation=None, use_bias=True,
+                 kernel_initializer='glorot_uniform', bias_initializer='zeros',
+                 kernel_regularizer=None, bias_regularizer=None, activity_regularizer=None,
+                 kernel_constraint=None, bias_constraint=None,
+                 **kwargs):
         if 'input_shape' not in kwargs and 'input_dim' in kwargs:
-            kwargs['input_shape'] = (kwargs.pop('input_dim'),)
-        super(Dense, self).__init__(**kwargs)
+         kwargs['input_shape'] = (kwargs.pop('input_dim'),)
+
+        super(Dense, self).__init__(activity_regularizer=regularizers.get(activity_regularizer), **kwargs)
 
         self.units = int(units) if not isinstance(units, int) else units
         self.activation = activations.get(activation)
         self.use_bias = use_bias
+        self.kernel_initializer = initializers.get(kernel_initializer)
+        self.bias_initializer = initializers.get(bias_initializer)
+        self.kernel_regularizer = regularizers.get(kernel_regularizer)
+        self.bias_regularizer = regularizers.get(bias_regularizer)
+        self.kernel_constraint = constraints.get(kernel_constraint)
+        self.bias_constraint = constraints.get(bias_constraint)
+
+        self.supports_masking = True
+        self.input_spec = InputSpec(min_ndim=2)
 
     def build(self, input_shape):
-        dtype = dtype.as_dtype(self.dtype or K.floatx())
+        dtype = dtypes.as_dtype(self.dtype or K.floatx())
+        if not (dtype.is_floating or dtype.is_complex):
+            raise TypeError('Unable to build `Dense` layer with non-floating point '
+                            'dtype %s' % (dtype,))
         input_shape = tensor_shape.TensorShape(input_shape)
+        if tensor_shape.dimension_value(input_shape[-1]) is None:
+            raise ValueError('The last dimension of the inputs to `Dense` '
+                             'should be defined. Found `None`.')
         last_dim = tensor_shape.dimension_value(input_shape[-1])
-
+        self.input_spec = InputSpec(min_ndim=2, axes={-1: last_dim})
         self.kernel = self.add_weight(
             'kernel',
             shape=[last_dim, self.units],
+            initializer=self.kernel_initializer,
+            regularizer=self.kernel_regularizer,
+            constraint=self.kernel_constraint,
             dtype=self.dtype,
-            trainable=True
-        )
-
+            trainable=True)
         if self.use_bias:
             self.bias = self.add_weight(
                 'bias',
                 shape=[self.units,],
+                initializer=self.bias_initializer,
+                regularizer=self.bias_regularizer,
+                constraint=self.bias_constraint,
                 dtype=self.dtype,
-                trainable=True
-            )
+                trainable=True)
         else:
             self.bias = None
-
-        # super(Sense, self).build(input_shape)
         self.built = True
 
     def call(self, inputs):
