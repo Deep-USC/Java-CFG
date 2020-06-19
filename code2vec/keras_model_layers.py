@@ -2,13 +2,12 @@
 @author: Bohui Zhang
 
 Custom layers model implemented in tensorflow 2.0 via subclassing.
-To use in code2vec by substituting `__init__` & `_create_keras_model` function
-in `Code2VecModel` class in `keras_model.py` and adding `call` function.
+To use in code2vec by substituting import info, `__init__` & `_create_keras_model`
+functions and adding `call` function in `Code2VecModel` class in `keras_model.py`.
 
 
 """
 
-# Consistent import info as `keras_model.py`
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras.layers import Input, Embedding, Concatenate, Dropout, TimeDistributed, Dense
@@ -24,7 +23,7 @@ from typing import List, Optional, Iterable, Union, Callable, Dict
 from collections import namedtuple
 import time
 import datetime
-from vocabularies import VocabType
+from vocabularies import VocabType, Code2VecVocabs
 from keras_attention_layer import AttentionLayer
 from keras_topk_word_predictions_layer import TopKWordPredictionsLayer
 from keras_words_subtoken_metrics import WordsSubtokenPrecisionMetric, WordsSubtokenRecallMetric, WordsSubtokenF1Metric
@@ -44,7 +43,9 @@ class Code2VecModel(Code2VecModelBase):
         self._checkpoint: Optional[tf.train.Checkpoint] = None
         self._checkpoint_manager: Optional[tf.train.CheckpointManager] = None
 
-        super(Code2VecModel, self).__init__(config)
+        # TODO: verify the initialization here
+        self.config = config
+        self.vocabs = Code2VecVocabs(self.config)
 
         # initialize the layers
         self.paths_embedding = Embedding(self.vocabs.path_vocab.size, self.config.PATH_EMBEDDINGS_SIZE, name='path_embedding')
@@ -54,6 +55,10 @@ class Code2VecModel(Code2VecModelBase):
         self.context_dense = TimeDistributed(Dense(self.config.CODE_VECTOR_SIZE, use_bias=False, activation='tanh'))
         self.attention = AttentionLayer(name='attention')
         self.output = Dense(self.vocabs.target_vocab.size, use_bias=False, activation='softmax', name='target_index')
+        self.topk = TopKWordPredictionsLayer(self.config.TOP_K_WORDS_CONSIDERED_DURING_PREDICTION,
+                                             self.vocabs.target_vocab.get_index_to_word_lookup_table(), name='target_string')
+
+        super(Code2VecModel, self).__init__(config)
 
     def call(self, inputs):
         path_source_token_input, path_input, path_target_token_input, context_valid_mask = inputs
@@ -74,12 +79,12 @@ class Code2VecModel(Code2VecModelBase):
         context_after_dense = self.context_dense(context_embedded)
 
         # The final code vectors are received by applying attention to the "densed" context vectors.
-        self.code_vectors, self.attention_weights = self.attention([context_after_dense, context_valid_mask])
+        code_vectors, attention_weights = self.attention([context_after_dense, context_valid_mask])
 
         # "Decode": Now we use another dense layer to get the target word embedding from each code vector.
-        self.target_index = self.output(self.code_vectors)
+        target_index = self.output(code_vectors)
 
-        return self.target_index
+        return code_vectors, attention_weights, target_index
 
     def _create_keras_model(self):
         # Each input sample consists of a bag of x`MAX_CONTEXTS` tuples (source_terminal, path, target_terminal).
@@ -89,28 +94,26 @@ class Code2VecModel(Code2VecModelBase):
         path_target_token_input = Input((self.config.MAX_CONTEXTS,), dtype=tf.int32)
         context_valid_mask = Input((self.config.MAX_CONTEXTS,))
 
-        # Wrap the layers into a Keras model, using our subtoken-metrics and the CE loss.
         inputs = [path_source_token_input, path_input, path_target_token_input, context_valid_mask]
-        self.keras_train_model = keras.Model(inputs=inputs, outputs=self.target_index)
+        code_vectors, attention_weights, target_index = self.call(inputs)
+        # Wrap the layers into a Keras model, using our subtoken-metrics and the CE loss.
+        self.keras_train_model = keras.Model(inputs=inputs, outputs=target_index)
 
         # Actual target word predictions (as strings). Used as a second output layer.
         # Used for predict() and for the evaluation metrics calculations.
-        topk_predicted_words, topk_predicted_words_scores = TopKWordPredictionsLayer(
-            self.config.TOP_K_WORDS_CONSIDERED_DURING_PREDICTION,
-            self.vocabs.target_vocab.get_index_to_word_lookup_table(),
-            name='target_string')(self.target_index)
+        topk_predicted_words, topk_predicted_words_scores = self.topk(target_index)
 
         # We use another dedicated Keras model for evaluation.
         # The evaluation model outputs the `topk_predicted_words` as a 2nd output.
         # The separation between train and eval models is for efficiency.
         self.keras_eval_model = keras.Model(
-            inputs=inputs, outputs=[self.target_index, topk_predicted_words], name="code2vec-keras-model")
+            inputs=inputs, outputs=[target_index, topk_predicted_words], name="code2vec-keras-model")
 
         # We use another dedicated Keras function to produce predictions.
         # It have additional outputs than the original model.
         # It is based on the trained layers of the original model and uses their weights.
         predict_outputs = tuple(KerasPredictionModelOutput(
-            target_index=self.target_index, code_vectors=self.code_vectors, attention_weights=self.attention_weights,
+            target_index=target_index, code_vectors=code_vectors, attention_weights=attention_weights,
             topk_predicted_words=topk_predicted_words, topk_predicted_words_scores=topk_predicted_words_scores))
         self.keras_model_predict_function = K.function(inputs=inputs, outputs=predict_outputs)
 
