@@ -18,7 +18,7 @@ def parse(input_dir):
     # test case
     #code = {c: functions[c] for c in list(functions)[:1]}
     #code = [c for c in list(functions.values())[:1]]
-    code = list(functions.values())[0]
+    #code = list(functions.values())[0]
     #code = "public class Test {\n" + code + "}"
     count = 0
     
