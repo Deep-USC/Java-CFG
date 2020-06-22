@@ -5,6 +5,7 @@
 """
 
 import os
+import sys
 import json
 
 def parse(input_dir):
@@ -24,6 +25,8 @@ def parse(input_dir):
     for key, value in functions.items():
         #if value[:12] != "public class" or value[:21] != "public abstract class":
         
+        # test first 100 functions since running the whole preprocessing takes time
+        # or one can seperate the json file and running in multiple cmd
         if count == 100:
             break
         count += 1
@@ -37,12 +40,11 @@ def parse(input_dir):
         with open(java_path, 'x') as f:
             f.write(code)
 
-    #print()
-
 if __name__ == "__main__":
-    cwd = os.getcwd()  # Get the current working directory (cwd)
-    print(cwd)
-    files = os.listdir(cwd)  # Get all the files in that directory
+    #cwd = os.getcwd()  # Get the current working directory (cwd)
+    #print(cwd)
+    #files = os.listdir(cwd)  # Get all the files in that directory
     #print("Files in %r: %s" % (cwd, files))
-    path = "C:\Code\DR\datasets\\funcom_processed\\functions.json"
+    #path = "C:\Code\DR\datasets\\funcom_processed\\functions.json"
+    path = sys.argv[1]
     parse(path)
