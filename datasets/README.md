@@ -8,8 +8,8 @@ The [dataset](http://leclair.tech/data/funcom/) (LeClair *et al.* 2019) I used c
 ### Step 0: Cloning work repository
 
 ```bash
-wget https://github.com/BohuiZhang/DeepUSC.git
-cd DeepUSC/datasets
+git clone https://github.com/Deep-USC/Java-CFG.git
+cd Jav-CFG/datasets
 ```
 
 ### Step 1: Creating Java resources
